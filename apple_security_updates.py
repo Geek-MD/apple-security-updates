@@ -187,15 +187,15 @@ def build_message(conn, file_hash):
     for array_element in db_array:
         apprise_message += array_element[1]
         if array_element[3] != None:
-            apprise_message += f' - <a href="{array_element[3]}">link</a>'
+            apprise_message += f' - [link]({array_element[3]})'
         apprise_message += '\n'
     return apprise_message, apprise_title
 
 def apprise_notification(conn, file_hash):
-    apprise_object = Apprise()
-    apprise_object.add('tgram://{bot_token}/{chat_id}', tag='telegram')
+    apobj = Apprise()
+    apobj.add(f'tgram://{bot_token}/{chat_id}', tag='telegram')
     apprise_message, apprise_title = build_message(conn, file_hash)
-    apprise_object.notify(apprise_message, title=apprise_title, tag="telegram")
+    apobj.notify(title=apprise_title, body=apprise_message, tag="telegram")
 
 def main():
     global apple_updates_url
