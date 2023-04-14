@@ -8,6 +8,9 @@ packages = [{include = "apple_security_updates"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+requests = "^2.28.2"
+numpy = "^1.24.2"
+beautifulsoup4 = "^4.12.2"
 
 
 [build-system]
