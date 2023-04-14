@@ -6,19 +6,20 @@
 import contextlib
 import datetime
 import hashlib
-import pytz
-import sqlite3
 import logging
-import requests
-import urllib.request
-import re
 import os.path
+import re
+import sqlite3
+import urllib.request
 import numpy
+import pytz
+import requests
+from apprise import Apprise
+from bs4 import BeautifulSoup
+from numpy import ndarray
 from datetime import datetime
 from sqlite3 import Error, Connection
 from typing import TypeVar
-from bs4 import BeautifulSoup
-from numpy import ndarray
 
 # global variables
 timezone = pytz.timezone('America/Santiago')
@@ -27,20 +28,28 @@ search_url = 'https://www.apple.com/us/search/apple-security-updates?src=globaln
 language = 'es-cl'
 db_file = r'apple_security_updates.db'
 log_file = r'apple_security_updates.log'
+bot_token = "5198410262:AAFfyI5u-HLBXqbzsm2bx7dEy1vuTqZoKD0"
+chat_id = "-1001261613616"
 
 # logging
 log_format = '%(asctime)s -- %(message)s'
 logging.basicConfig(filename=log_file, encoding='utf-8', format=log_format, level=logging.INFO)
 
 # SQL queries
-sql_create_main_table: str = """CREATE TABLE main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date text NOT 
+sql_check_empty_database: str = """ SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main' """
+sql_table_population: str = """ SELECT main_id FROM main ORDER BY main_id DESC LIMIT 1 """
+sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash = '{file_hash}' """
+sql_create_main_table: str = """ CREATE TABLE main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date text NOT 
 NULL, file_hash text NOT NULL, log_message text NOT NULL ); """
-sql_create_updates_table: str = """CREATE TABLE updates ( table_id integer PRIMARY KEY AUTOINCREMENT, update_date 
+sql_create_updates_table: str = """ CREATE TABLE updates ( table_id integer PRIMARY KEY AUTOINCREMENT, update_date 
 text NOT NULL, update_product text NOT NULL, update_target text NOT NULL, update_link text, main_id integer NOT NULL, 
 FOREIGN KEY (main_id) REFERENCES main (main_id) ); """
 sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
-sql_updates_table: str = """INSERT INTO updates (update_date, update_product, update_target, update_link, main_id) 
+sql_updates_table: str = """ INSERT INTO updates (update_date, update_product, update_target, update_link, main_id) 
 VALUES (?, ?, ?, ?, ?); """
+sql_updates_diff: str = """ SELECT update_date, update_product, update_target, update_link FROM updates """
+sql_extract_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
+file_hash = '{file_hash}' """
 
 def get_apple_updates_url(search_url, language):
     response = requests.get(search_url)
@@ -89,7 +98,7 @@ def first_population(conn, url):
     file_hash = check_hash(url)
     cursor.execute(sql_main_table, (log_date, file_hash, log_message))
     logging.info(log_message)
-    cursor.execute("SELECT main_id FROM main ORDER BY main_id DESC LIMIT 1")
+    cursor.execute(sql_table_population)
     main_id = cursor.fetchone()[0]
     for i, row in enumerate(recent_updates):
         if i == 0:
@@ -108,13 +117,13 @@ def first_population(conn, url):
 def table_update(conn, url):
     cursor = conn.cursor()
     file_hash = check_hash(url)
-    cursor.execute(f"SELECT COUNT(*) FROM main WHERE file_hash = '{file_hash}'")
+    cursor.execute(sql_main_table_hash_check, file_hash)
     query = cursor.fetchone()[0]
     if query != 0:
         logging.info('No updates available.')
     else:
         table_population(conn, url, file_hash)
-        telegram_bot_notification(conn, file_hash)
+        apprise_notification(conn, file_hash)
 
 def table_population(conn, url, file_hash):
     cursor = conn.cursor()
@@ -124,7 +133,7 @@ def table_population(conn, url, file_hash):
     updates_diff = check_updates_diff(conn, recent_updates)
     cursor.execute(sql_main_table, (log_date, file_hash, log_message))
     logging.info(log_message)
-    cursor.execute("SELECT main_id FROM main ORDER BY main_id DESC LIMIT 1")
+    cursor.execute(sql_table_population)
     main_id = cursor.fetchone()[0]
     for array_element in updates_diff:
         update_date = array_element[0]
@@ -136,9 +145,8 @@ def table_population(conn, url, file_hash):
 # noinspection PyTypeChecker
 def check_updates_diff(conn, recent_updates):
     cursor = conn.cursor()
-    cursor.execute("SELECT update_date, update_product, update_target, update_link FROM updates")
-    query: object = cursor.fetchall()
-    db_array: ndarray = numpy.array(list(query))
+    cursor.execute(sql_updates_diff)
+    db_array: ndarray = numpy.array(list(cursor.fetchall()))
     updates_array = []
     for i, row in enumerate(recent_updates):
         if i == 0:
@@ -170,8 +178,24 @@ def check_updates(url):
     updates_table = soup.find('div', id="tableWraper")
     return updates_table.find_all('tr')
 
-def telegram_bot_notification(conn, file_hash):
-    pass
+def build_message(conn, file_hash):
+    cursor = conn.cursor()
+    cursor.execute(sql_extract_updates, file_hash)
+    db_array: ndarray = numpy.array(list(cursor.fetchall()))
+    apprise_title = 'Nuevas actualizaciones de Apple'
+    apprise_message = ""
+    for array_element in db_array:
+        apprise_message += array_element[1]
+        if array_element[3] != None:
+            apprise_message += f' - <a href="{array_element[3]}">link</a>'
+        apprise_message += '\n'
+    return apprise_message, apprise_title
+
+def apprise_notification(conn, file_hash):
+    apprise_object = Apprise()
+    apprise_object.add('tgram://{bot_token}/{chat_id}', tag='telegram')
+    apprise_message, apprise_title = build_message(conn, file_hash)
+    apprise_object.notify(apprise_message, title=apprise_title, tag="telegram")
 
 def main():
     global apple_updates_url
@@ -181,7 +205,7 @@ def main():
     conn: Connection = create_connection(db_file)
     cursor = conn.cursor()
 
-    table_check = cursor.execute("SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main'")
+    table_check = cursor.execute(sql_check_empty_database)
 
     if table_check.fetchone()[0] == 1:
         table_update(conn, apple_updates_url)
