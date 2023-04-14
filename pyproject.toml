@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "apple-security-updates"
+version = "0.1.0"
+description = ""
+authors = ["Edison Montes M. <edison.montes@gmail.com>"]
+readme = "README.md"
+packages = [{include = "apple_security_updates"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
