@@ -1,0 +1,12 @@
+{
+  "apple_file": "https://support.apple.com/es-es/HT201222",
+  "db_file": "apple_security_updates.db",
+  "log_file": "apple_security_updates.log",
+  "timezone": "America/Santiago",
+  "bot_token": "bot_token",
+  "chat_ids": [
+    "-chat_id_01",
+    "-chat_id_02",
+    "-chat_id_03"
+  ]
+}
