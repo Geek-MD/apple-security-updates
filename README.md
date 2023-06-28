@@ -1,3 +1,4 @@
-# apple-security-updates
+# Apple Security Updates Notifier
 
-This is a Python script that scraps Apple Security Updates page, and notifies recent updates through Telegram
+Python script that checks for Apple software updates, and notifies via Telegram Bot.
+This is a first workaround attempt for a persistent bot in the near future.
