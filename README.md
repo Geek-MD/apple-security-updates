@@ -14,6 +14,10 @@ git clone https://github.com/Geek-MD/apple-security-updates-notifier.git
 
 Now open ***config.json*** with the editor of your preference, and change *"timezone"*, *"bot_token"* and *"chat_id_n"* with their corresponding values.
 
+```
+nano config.json
+```
+
 Now, you have to create a cron job which will execute the script at a defined time and day. In the example, the script will run every 4 hours from monday to sunday.
 
 ```
