@@ -1,0 +1,17 @@
+[Unit]
+Description=Apple Security Updates Notifier
+After=multi-user.target
+
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sleep 60
+ExecStart=/usr/bin/python3 /home/emontes/python/apple-security-updates-notifier/asu_notifier.py
+Restart=on-failure
+RestartSec=30s
+KillMode=process
+TimeoutSec=infinity
+Environment="PYTHONPATH=$PYTHONPATH:/home/emontes/.local/lib/python3.9/site-packages/"
+
+[Install]
+WantedBy=multi-user.target
