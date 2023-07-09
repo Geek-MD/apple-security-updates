@@ -1,24 +1,29 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-# Apple Updates v0.2.0
+# Apple Updates v0.3.0
 # Python script that checks for Apple software updates, and notifies via Telegram Bot.
 # This is a first workaround attempt for a persistent bot in the near future.
 
-import logging
-import json
-import sqlite3
-import os.path
 import contextlib
-import hashlib
 import datetime
-import requests
+import hashlib
+import json
+import logging
+import os
+import sqlite3
+import time
 import re
-import pytz
+from datetime import datetime
 from sqlite3 import Error, Connection
 from typing import TypeVar
-from datetime import datetime
-from bs4 import BeautifulSoup
+
+import pytz
+import requests
+import schedule
 from apprise import Apprise
+from bs4 import BeautifulSoup
+
+os.chdir('/home/emontes/python/apple-security-updates-notifier')
 
 # set global variables
 global apple_file, db_file, log_file, localtime, bot_token, chat_ids
@@ -40,6 +45,7 @@ sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY upd
 sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
 sql_get_date_update: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
 
+
 def get_config():
     global apple_file, db_file, log_file, localtime, bot_token, chat_ids
     config = open('config.json', 'r')
@@ -52,6 +58,7 @@ def get_config():
     bot_token = data['bot_token']
     chat_ids = data['chat_ids']
 
+
 def create_connection(file):
     if not os.path.isfile(file):
         logging.info(f'\'{file}\' database created.')
@@ -62,6 +69,7 @@ def create_connection(file):
         logging.error(str(error))
     return conn
 
+
 def create_table(conn, sql_create_table, table_name):
     with contextlib.suppress(Error):
         try:
@@ -69,6 +77,7 @@ def create_table(conn, sql_create_table, table_name):
             logging.info(f'\'{table_name}\' table created.')
         except Error as error:
             logging.error(str(error))
+
 
 def get_updates(conn, full_update):
     cursor = conn.cursor()
@@ -80,11 +89,15 @@ def get_updates(conn, full_update):
         logging.info('No updates available.')
     else:
         update_databases(conn, content, file_hash, full_update)
+    conn.commit()
+    conn.close()
+
 
 def update_databases(conn, content, file_hash, full_update):
     log_date = datetime.now(tz=localtime)
     update_main_database(conn, log_date, file_hash, full_update)
     update_updates_database(conn, file_hash, content, full_update)
+
 
 def update_main_database(conn, log_date, file_hash, full_update):
     cursor = conn.cursor()
@@ -95,6 +108,7 @@ def update_main_database(conn, log_date, file_hash, full_update):
     cursor.execute(sql_main_table, (log_date, file_hash, log_message))
     logging.info(log_message)
     conn.commit()
+
 
 def update_updates_database(conn, file_hash, content, full_update):
     cursor = conn.cursor()
@@ -114,6 +128,7 @@ def update_updates_database(conn, file_hash, content, full_update):
     conn.commit()
     apprise_notification(conn, recent_updates, full_update)
 
+
 def formatted_content(content):
     content_list = []
     for i, row in enumerate(content):
@@ -122,7 +137,8 @@ def formatted_content(content):
         columns = row.find_all('td')
         date_str = columns[2].get_text().strip().replace('\xa0', ' ')
         update_date = check_date(date_str)
-        update_product = columns[0].get_text().strip().replace('Esta actualización no tiene ninguna entrada de CVE publicada.', '').replace('\xa0', ' ').replace('\n', '')
+        update_product = columns[0].get_text().strip().replace(
+            'Esta actualización no tiene ninguna entrada de CVE publicada.', '').replace('\xa0', ' ').replace('\n', '')
         update_target = columns[1].get_text().replace('\xa0', ' ').replace('\n', '')
         try:
             update_link = columns[0].find('a')['href']
@@ -132,6 +148,7 @@ def formatted_content(content):
         content_list.append(list_element)
     content_list.reverse()
     return content_list
+
 
 def check_date(date_str):
     pattern = r'(\d{1,2}) de (\w+) de (\d{4})'
@@ -147,6 +164,7 @@ def check_date(date_str):
     except Exception:
         return date_str
 
+
 def apprise_notification(conn, updates, full_update):
     apprise_object = Apprise()
     apprise_message = build_message(conn, updates, full_update)
@@ -154,6 +172,7 @@ def apprise_notification(conn, updates, full_update):
         apprise_syntax = f'tgram://{bot_token}/{chat_id}/?format=markdown'
         apprise_object.add(apprise_syntax, tag='telegram')
         apprise_object.notify(apprise_message, tag="telegram")
+
 
 def build_message(conn, last_updates, full_update):
     max_updates = 5
@@ -184,6 +203,7 @@ def build_message(conn, last_updates, full_update):
         apprise_message += f' - {element[2]}\n'
     return apprise_message
 
+
 def main():
     get_config()
 
@@ -194,16 +214,23 @@ def main():
     # create a database connection
     conn: Connection = create_connection(db_file)
     cursor = conn.cursor()
-    full_update = cursor.execute(sql_check_empty_database).fetchone()[0] == 0
-    if full_update:
+    empty_database = cursor.execute(sql_check_empty_database).fetchone()[0] == 0
+    if empty_database:
         # create database tables and populate them
         create_table(conn, sql_create_main_table, 'main')
         create_table(conn, sql_create_updates_table, 'updates')
 
-    get_updates(conn, full_update)
+    # run first database update
+    get_updates(conn, full_update=True)
 
-    conn.commit()
-    conn.close()
+    # Schedule the function to run every hour
+    schedule.every().hour.do(get_updates, conn=conn, full_update=False)
+
+    # Run the scheduler continuously
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
 
 if __name__ == '__main__':
     main()

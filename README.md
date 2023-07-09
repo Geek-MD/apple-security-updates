@@ -18,22 +18,41 @@ Now open ***config.json*** with the editor of your preference, and change *"time
 nano config.json
 ```
 
-Now, you have to create a cron job which will execute the script at a defined time and day. In the example, the script will run every 4 hours from monday to sunday.
+Now, you have to create a service at ***systemd*** which will execute the script and restart it on failure.
 
 ```
-crontab -e
-0 */4 * * * python3 /home/emontes/python/apple-security-updates-notifier/asun.py
-Ctrl O
-Ctrl X
+sudo nano /etc/systemd/system/apple-security-updates.service
 ```
 
-Obviously you can change change the time interval at wich the script is executed, modifying the cron command. I recomend [https://crontab.guru](https://crontab.guru) to do that.
+Paste the content of *apple-security-updates.service* file. Be sure to modify *ExecStart* with the path to the python script, and *Environment* with the route for python libraries.
 
-Finally you have to reboot so changes take effect.
+To get PYTHONPATH, first you need to know which version of python you have installed.
 
 ```
-sudo reboot
+python3 --version
 ```
+
+In my case is *python 3.9.2*. With that info you can search for the path of your python libraries. Get into python interpreter and run the following commands.
+
+```
+python3
+import sys
+sys.path
+```
+
+You will obtain a series of paths. Focus on the one that has a structure similar to *'/home/<user>/.local/lib/python3.9/site-packages'*. Note that it makes mention to *python3.9* which is the same version that is running in your system. Paste the path replacing <path_to_your_python_packages>. Do not include quotation marks.
+
+Save with Ctrl-O and exit with Ctrl X.
+
+Now you have to reload *systemd* daemons, enable and start the service
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable apple-security-updates.service
+sudo systemctl start apple-security-updates.service
+```
+
+The service will take some time to start because of *ExecStartPre* section which will wait for 60 seconds. This is due to a recomendation found on several forums which intention is to ensure that the script executes only when the system is fully loaded.
 
 ## Note
 
