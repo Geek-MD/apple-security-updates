@@ -6,12 +6,12 @@ After=multi-user.target
 Type=simple
 Environment=DISPLAY=:0
 ExecStartPre=/bin/sleep 60
-ExecStart=/usr/bin/python3 /home/emontes/python/apple-security-updates-notifier/asu_notifier.py
+ExecStart=/usr/bin/python3 /<absolute_path_to_file>/asu_notifier.py
 Restart=on-failure
 RestartSec=30s
 KillMode=process
 TimeoutSec=infinity
-Environment="PYTHONPATH=$PYTHONPATH:/home/emontes/.local/lib/python3.9/site-packages/"
+Environment="PYTHONPATH=$PYTHONPATH:/<path_to_your_python_packages>/"
 
 [Install]
 WantedBy=multi-user.target
