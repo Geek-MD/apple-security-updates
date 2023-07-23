@@ -73,9 +73,12 @@ python3 config.py --bot-token <bot_token> --chat-ids <chat_id_1> <chat_id_2>
 
 ## Functionality
 
-This piece of software comprehends 2 *.py* files, 1 *.json* file and 1 *.sh* file. Python files are *config.py* which runs just once at start, and *apple_security_updates.py* which is the persistent script. The JSON file is *asu-notifier.json* which contains some basic information for *config.py*. Finally, the bash file is *asu-notifier.sh* which contains shell commands in order to run the persistent Python script as a systemd service. 
+This piece of software comprehends 2 *.py* files, 1 *.json* file and 1 *.sh* file. Python files are *config.py* which runs just once at start, and *apple_security_updates.py* which is the persistent script. The JSON file is *asu-notifier.json* which contains some basic information for *config.py*. Finally, the bash file is *asu-notifier.sh* which contains shell commands in order to run the persistent Python script as a systemd service.
+
 Once the script is run, it will automatically recreate 2 files using the information you gave it, a *asu-notifier.service* file used to start a *systemd* service, and a *config.json* file with the configuration needed by the persistent script.
+
 Finally, the script will execute the bash file in order to enable and start the systemd service. This will take some time to start because of *ExecStartPre* section which will wait for 60 seconds. This is due to a recommendation found on several forums which intention is to ensure that the script executes only when the system is fully loaded.
+
 When you see the system prompt, if you haven't received an error message, the script will be running in background, and you'll receive a Telegram Notification with the latest Apple Security Updates.
 
 ## Troubleshooting
