@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# Apple Updates v0.3.0
+# Apple Security Updates Notifier v0.4.0
 # Python script that checks for Apple software updates, and notifies via Telegram Bot.
-# This is a first workaround attempt for a persistent bot in the near future.
+# This is a first workaround attempt for a permanent bot in the near future.
 
 import contextlib
 import datetime
@@ -30,9 +30,9 @@ global apple_file, db_file, log_file, localtime, bot_token, chat_ids
 
 # SQL queries
 sql_check_empty_database: str = """ SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main' """
-sql_create_main_table: str = """ CREATE TABLE main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date text NOT 
+sql_create_main_table: str = """ CREATE TABLE IF NOT EXISTS main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date text NOT 
 NULL, file_hash text NOT NULL, log_message text NOT NULL ); """
-sql_create_updates_table: str = """ CREATE TABLE updates ( update_id integer PRIMARY KEY AUTOINCREMENT, update_date 
+sql_create_updates_table: str = """ CREATE TABLE IF NOT EXISTS updates ( update_id integer PRIMARY KEY AUTOINCREMENT, update_date 
 text NOT NULL, update_product text NOT NULL, update_target text NOT NULL, update_link text, file_hash text NOT NULL ); """
 sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash = ? """
 sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
@@ -44,7 +44,6 @@ sql_get_last_updates: str = """ SELECT update_date, update_product, update_targe
 sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY update_id DESC LIMIT 1; """
 sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
 sql_get_date_update: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
-
 
 def get_config():
     global apple_file, db_file, log_file, localtime, bot_token, chat_ids
@@ -58,7 +57,6 @@ def get_config():
     bot_token = data['bot_token']
     chat_ids = data['chat_ids']
 
-
 def create_connection(file):
     if not os.path.isfile(file):
         logging.info(f'\'{file}\' database created.')
@@ -69,15 +67,13 @@ def create_connection(file):
         logging.error(str(error))
     return conn
 
-
-def create_table(conn, sql_create_table, table_name):
+def create_table(conn, sql_create_table, table_name, file):
     with contextlib.suppress(Error):
         try:
             conn.cursor().execute(sql_create_table)
-            logging.info(f'\'{table_name}\' table created.')
+            logging.info(f'\'{file}\' - \'{table_name}\' table created.')
         except Error as error:
             logging.error(str(error))
-
 
 def get_updates(conn, full_update):
     cursor = conn.cursor()
@@ -92,12 +88,10 @@ def get_updates(conn, full_update):
     conn.commit()
     conn.close()
 
-
 def update_databases(conn, content, file_hash, full_update):
     log_date = datetime.now(tz=localtime)
     update_main_database(conn, log_date, file_hash, full_update)
     update_updates_database(conn, file_hash, content, full_update)
-
 
 def update_main_database(conn, log_date, file_hash, full_update):
     cursor = conn.cursor()
@@ -108,7 +102,6 @@ def update_main_database(conn, log_date, file_hash, full_update):
     cursor.execute(sql_main_table, (log_date, file_hash, log_message))
     logging.info(log_message)
     conn.commit()
-
 
 def update_updates_database(conn, file_hash, content, full_update):
     cursor = conn.cursor()
@@ -127,7 +120,6 @@ def update_updates_database(conn, file_hash, content, full_update):
     logging.info(log_message)
     conn.commit()
     apprise_notification(conn, recent_updates, full_update)
-
 
 def formatted_content(content):
     content_list = []
@@ -149,7 +141,6 @@ def formatted_content(content):
     content_list.reverse()
     return content_list
 
-
 def check_date(date_str):
     pattern = r'(\d{1,2}) de (\w+) de (\d{4})'
     try:
@@ -164,15 +155,15 @@ def check_date(date_str):
     except Exception:
         return date_str
 
-
 def apprise_notification(conn, updates, full_update):
     apprise_object = Apprise()
     apprise_message = build_message(conn, updates, full_update)
+    apprise_syntax = f'tgram://{bot_token}/'
     for chat_id in chat_ids:
-        apprise_syntax = f'tgram://{bot_token}/{chat_id}/?format=markdown'
-        apprise_object.add(apprise_syntax, tag='telegram')
-        apprise_object.notify(apprise_message, tag="telegram")
-
+        apprise_syntax += f'{chat_id}/'
+    apprise_syntax *= '?format=markdown'
+    apprise_object.add(apprise_syntax, tag='telegram')
+    apprise_object.notify(apprise_message, tag="telegram")
 
 def build_message(conn, last_updates, full_update):
     max_updates = 5
@@ -203,7 +194,6 @@ def build_message(conn, last_updates, full_update):
         apprise_message += f' - {element[2]}\n'
     return apprise_message
 
-
 def main():
     get_config()
 
@@ -217,8 +207,8 @@ def main():
     empty_database = cursor.execute(sql_check_empty_database).fetchone()[0] == 0
     if empty_database:
         # create database tables and populate them
-        create_table(conn, sql_create_main_table, 'main')
-        create_table(conn, sql_create_updates_table, 'updates')
+        create_table(conn, sql_create_main_table, 'main', db_file)
+        create_table(conn, sql_create_updates_table, 'updates', db_file)
 
     # run first database update
     get_updates(conn, full_update=True)
@@ -230,7 +220,6 @@ def main():
     while True:
         schedule.run_pending()
         time.sleep(1)
-
 
 if __name__ == '__main__':
     main()
