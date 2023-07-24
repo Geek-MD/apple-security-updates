@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.0
+# Apple Security Updates Notifier v0.4.1
 # Python script that checks for Apple software updates, and notifies via Telegram Bot.
 # This is a first workaround attempt for a permanent bot in the near future.
 
@@ -10,9 +10,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
-import re
 from datetime import datetime
 from sqlite3 import Error, Connection
 from typing import TypeVar
@@ -23,10 +23,11 @@ import schedule
 from apprise import Apprise
 from bs4 import BeautifulSoup
 
-os.chdir('/home/emontes/python/apple-security-updates-notifier')
+working_dir = os.getcwd()
+os.chdir(working_dir)
 
 # set global variables
-global apple_file, db_file, log_file, localtime, bot_token, chat_ids
+global apple_url, db_file, log_file, localtime, bot_token, chat_ids
 
 # SQL queries
 sql_check_empty_database: str = """ SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main' """
@@ -38,7 +39,7 @@ sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash =
 sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
 sql_updates_table: str = """ INSERT INTO updates (update_date, update_product, update_target, update_link, file_hash) 
 VALUES (?, ?, ?, ?, ?); """
-sql_get_updates: str = """ SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY update_id DESC; """
+sql_get_updates: str = """ SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY update_id ASC; """
 sql_get_updates_count: str = """ SELECT count(update_date) FROM updates WHERE update_date = ?; """
 sql_get_last_updates: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
 sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY update_id DESC LIMIT 1; """
@@ -46,10 +47,10 @@ sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
 sql_get_date_update: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
 
 def get_config():
-    global apple_file, db_file, log_file, localtime, bot_token, chat_ids
+    global apple_url, db_file, log_file, localtime, bot_token, chat_ids
     config = open('config.json', 'r')
     data = json.loads(config.read())
-    apple_file = data['apple_file']
+    apple_url = data['apple_url']
     db_file = data['db_file']
     log_file = data['log_file']
     timezone = data['timezone']
@@ -77,10 +78,10 @@ def create_table(conn, sql_create_table, table_name, file):
 
 def get_updates(conn, full_update):
     cursor = conn.cursor()
-    response = requests.get(apple_file)
+    response = requests.get(apple_url)
     content = response.content
     file_hash = hashlib.sha256(content).hexdigest()
-    available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] == 0
+    available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] < 1
     if not available_updates:
         logging.info('No updates available.')
     else:
@@ -115,6 +116,7 @@ def update_updates_database(conn, file_hash, content, full_update):
         old_updates = cursor.execute(sql_get_updates).fetchall()
         for element in old_updates:
             recent_updates.remove(element)
+    recent_updates.reverse()
     for element in recent_updates:
         cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
     logging.info(log_message)
@@ -138,7 +140,6 @@ def formatted_content(content):
             update_link = None
         list_element = [update_date, update_product, update_target, update_link]
         content_list.append(list_element)
-    content_list.reverse()
     return content_list
 
 def check_date(date_str):

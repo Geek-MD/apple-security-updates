@@ -2,18 +2,18 @@
 
 # This script recreates config.json and asu-notifier.service files.
 
-import site
-import os
 import argparse
 import json
+import os
+import re
+import subprocess
 import textwrap
+import urllib.request
 
+import pycountry
 import pytz
 import requests
-import re
-import urllib.request
-import subprocess
-import pycountry
+
 
 def get_config():
     config = open('asu-notifier.json', 'r')
@@ -24,7 +24,7 @@ def get_config():
     apple_url = data['apple_url']
     return prog_name_short, prog_name_long, version, apple_url
 
-def create_service_file(localpath, pythonpath, progname):
+def create_service_file(working_dir, pythonpath, progname):
     service_str = f"""[Unit]
 Description={progname}
 After=multi-user.target
@@ -33,7 +33,7 @@ After=multi-user.target
 Type=simple
 Environment=DISPLAY=:0
 ExecStartPre=/bin/sleep 60
-ExecStart=/usr/bin/python3 {localpath}/asu-bot.py
+ExecStart=/usr/bin/python3 {working_dir}/asu-bot.py
 Restart=on-failure
 RestartSec=30s
 KillMode=process
@@ -45,16 +45,16 @@ WantedBy=multi-user.target"""
     with open("asu-notifier.service", "w") as file:
         file.write(service_str)
 
-def create_config_json(appleurl, progname, bottoken, chatids, tzone):
-    config_str = f"""  "apple_url": "{appleurl}",
-  "db_file": "{progname}.db",
-  "log_file": "{progname}.log",
+def create_config_json(apple_url, prog_name, bot_token, chat_ids, tzone):
+    config_str = f"""  "apple_url": "{apple_url}",
+  "db_file": "{prog_name}.db",
+  "log_file": "{prog_name}.log",
   "timezone": "{tzone}",
-  "bot_token": "{bottoken}",
+  "bot_token": "{bot_token}",
   "chat_ids": [
 """
-    for i, value in enumerate(chatids):
-        if i+1 < len(chatids):
+    for i, value in enumerate(chat_ids):
+        if i+1 < len(chat_ids):
             config_str += f'    "{value}", \n'
         else:
             config_str += f'    "{value}"\n'
@@ -204,14 +204,14 @@ chat ids must be provided one after another separated by a space, like \"-123456
         return bot_token, timezone, chat_ids
 
 def main():
-    python_path = site.getusersitepackages()
-    local_path = os.getcwd()
+    python_path = subprocess.check_output("which python", shell=True).strip().decode('utf-8')
+    working_dir = os.getcwd()
 
     prog_name_short, prog_name_long, version, apple_url = get_config()
     bot_token, timezone, chat_ids = argument_parser(prog_name_short, prog_name_long, version)
-    create_service_file(python_path, local_path, prog_name_long)
+    create_service_file(python_path, working_dir, prog_name_long)
     create_config_json(apple_url, prog_name_short, bot_token, chat_ids, timezone)
-    subprocess.run(f'{local_path}/asu-notifier.sh')
+    subprocess.run(f'{working_dir}/asu-notifier.sh')
 
 if __name__ == '__main__':
     main()
