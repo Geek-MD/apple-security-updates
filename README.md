@@ -6,6 +6,12 @@ Python script that checks for Apple software updates, and notifies via Telegram 
 
 This script relies on a previously created Telegram bot. If you don't have one follow [this steps](https://www.alphr.com/telegram-create-bot/) to create one. You need your bot token at hand in order to run this script.
 
+Additionally, you have to install all dependencies listed in *requirements.txt* using
+
+```
+pip install -r requirements.txt
+```
+
 ## Basic installation and configuration
 
 Clone this repo with...
@@ -73,7 +79,7 @@ python3 config.py --bot-token <bot_token> --chat-ids <chat_id_1> <chat_id_2>
 
 ## Functionality
 
-This piece of software comprehends 2 *.py* files, 1 *.json* file and 1 *.sh* file. Python files are *config.py* which runs just once at start, and *apple_security_updates.py* which is the persistent script. The JSON file is *asu-notifier.json* which contains some basic information for *config.py*. Finally, the bash file is *asu-notifier.sh* which contains shell commands in order to run the persistent Python script as a systemd service.
+This piece of software comprehends 2 *.py* files, 1 *.json* file and 1 *.sh* file. Python files are *config.py* which runs just once at start, and *apple_security_updates.py* which is the persistent script. The JSON file is *asu-notifier.json* which contains some basic information for *config.py*. Finally, the bash file is *asu-notifier.sh* which contains shell commands in order to run the persistent Python script as a systemd service. 
 
 Once the script is run, it will automatically recreate 2 files using the information you gave it, a *asu-notifier.service* file used to start a *systemd* service, and a *config.json* file with the configuration needed by the persistent script.
 
