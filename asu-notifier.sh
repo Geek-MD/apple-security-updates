@@ -2,7 +2,7 @@
 
 # filename: asu-notifier.sh
 
-LOCAL_DIR=pwd
+LOCAL_DIR=$(pwd)
 
 sudo cp $LOCAL_DIR/asu-notifier.service /etc/systemd/system/asu-notifier.service
 
