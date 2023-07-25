@@ -24,9 +24,9 @@ def get_config():
     apple_url = data['apple_url']
     return prog_name_short, prog_name_long, version, apple_url
 
-def create_service_file(working_dir, pythonpath, progname):
+def create_service_file(working_dir, python_path, prog_name):
     service_str = f"""[Unit]
-Description={progname}
+Description={prog_name}
 After=multi-user.target
 
 [Service]
@@ -38,7 +38,7 @@ Restart=on-failure
 RestartSec=30s
 KillMode=process
 TimeoutSec=infinity
-Environment="PYTHONPATH=$PYTHONPATH:{pythonpath}/"
+Environment="PYTHONPATH=$PYTHONPATH:{python_path}/"
 
 [Install]
 WantedBy=multi-user.target"""
@@ -209,7 +209,7 @@ def main():
 
     prog_name_short, prog_name_long, version, apple_url = get_config()
     bot_token, timezone, chat_ids = argument_parser(prog_name_short, prog_name_long, version)
-    create_service_file(python_path, working_dir, prog_name_long)
+    create_service_file(working_dir, python_path, prog_name_long)
     create_config_json(apple_url, prog_name_short, bot_token, chat_ids, timezone)
     subprocess.run(f'{working_dir}/asu-notifier.sh')
 
