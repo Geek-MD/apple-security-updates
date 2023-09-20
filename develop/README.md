@@ -2,11 +2,9 @@
 
 Python script that checks for Apple software updates, and notifies via Telegram Bot.
 
-## Previous steps
-
 This script relies on a previously created Telegram bot. If you don't have one follow [this steps](https://www.alphr.com/telegram-create-bot/) to create one. You need your bot token at hand in order to run this script.
 
-## Basic installation and configuration
+## Previous steps
 
 Clone this repo with...
   
@@ -14,12 +12,23 @@ Clone this repo with...
 git clone https://github.com/Geek-MD/apple-security-updates-notifier.git
 ```
 
+Now execute the *start.sh* file with the following command. This will install all dependencies needed by the script
+listed on *requirements.txt*.
+
+```
+./start.sh
+```
+
+Once the script is finished, you will get help information on how to run the python script.
+
+## Basic configuration
+
 To run the script you must add *-b* or *--bot-token* option followed by the bot token itself. Bot token is mandatory, if you don't provide it, the script will exit with an error. Timezone or country arguments are optional. The default timezone is UTC.
 The basic syntax to run the script is as the following examples.
 
 ```
-python3 config.py -b <bot_token>
-python3 config.py --bot-token <bot_token>
+python3 asu-notifier.py -b <bot_token>
+python3 asu-notifier.py --bot-token <bot_token>
 ```
 
 You can check the script help by using *-h* or *--help* option.
@@ -38,7 +47,8 @@ python3 config.py --version
 
 ## Advanced configuration
 
-There are two options, independent one from the other, to define the time zone of the bot. You can use timezone or country options. Remember that this is optional.
+There are two options, independent one from the other, to define the bot timezone. You can use timezone or country
+options. Remember that this is optional.
 Additionally, you can define the chat ids where Telegram notifications will be sent.  
 
 ### Timezone or country configuration
@@ -69,23 +79,6 @@ If you don't provide chat ids at startup, the script will ask for them one by on
 ```
 python3 config.py -b <bot_token> -i <chat_id_1>
 python3 config.py --bot-token <bot_token> --chat-ids <chat_id_1> <chat_id_2>
-```
-
-## Functionality
-
-This piece of software comprehends 2 *.py* files, 1 *.json* file and 1 *.sh* file. Python files are *config.py* which runs just once at start, and *apple_security_updates.py* which is the persistent script. The JSON file is *asu-notifier.json* which contains some basic information for *config.py*. Finally, the bash file is *asu-notifier.sh* which contains shell commands in order to run the persistent Python script as a systemd service. 
-Once the script is run, it will automatically recreate 2 files using the information you gave it, a *asu-notifier.service* file used to start a *systemd* service, and a *config.json* file with the configuration needed by the persistent script.
-Finally, the script will execute the bash file in order to enable and start the systemd service. This will take some time to start because of *ExecStartPre* section which will wait for 60 seconds. This is due to a recommendation found on several forums which intention is to ensure that the script executes only when the system is fully loaded.
-When you see the system prompt, if you haven't received an error message, the script will be running in background, and you'll receive a Telegram Notification with the latest Apple Security Updates.
-
-## Troubleshooting
-
-Eventually, the systemd service may need to be restarted due to a system restart or by any other reason. You can do it manually using the following shell commands.
-
-```
-sudo systemctl daemon-reload
-sudo systemctl enable asu-notifier.service
-sudo systemctl start asu-notifier.service
 ```
 
 ## Note

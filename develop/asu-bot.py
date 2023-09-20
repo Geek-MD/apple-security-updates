@@ -1,55 +1,51 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.0
-# Python script that checks for Apple software updates, and notifies via Telegram Bot.
-# This is a first workaround attempt for a permanent bot in the near future.
+# Apple Security Updates Notifier v0.4.2
+# File: asu-bot.py
+# Description: Secondary component of ASU Notifier, which will run hourly and notify via Telegram of any new security
+# update.
 
-import contextlib
 import datetime
 import hashlib
 import json
 import logging
 import os
-import sqlite3
-import time
+import os.path
 import re
+import sqlite3
 from datetime import datetime
 from sqlite3 import Error, Connection
 from typing import TypeVar
 
 import pytz
 import requests
-import schedule
 from apprise import Apprise
 from bs4 import BeautifulSoup
 
-os.chdir('/home/emontes/python/apple-security-updates-notifier')
-
 # set global variables
-global apple_file, db_file, log_file, localtime, bot_token, chat_ids
+global apple_url, db_file, log_file, localtime, bot_token, chat_ids
 
 # SQL queries
-sql_check_empty_database: str = """ SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main' """
-sql_create_main_table: str = """ CREATE TABLE IF NOT EXISTS main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date text NOT 
-NULL, file_hash text NOT NULL, log_message text NOT NULL ); """
-sql_create_updates_table: str = """ CREATE TABLE IF NOT EXISTS updates ( update_id integer PRIMARY KEY AUTOINCREMENT, update_date 
-text NOT NULL, update_product text NOT NULL, update_target text NOT NULL, update_link text, file_hash text NOT NULL ); """
 sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash = ? """
 sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
 sql_updates_table: str = """ INSERT INTO updates (update_date, update_product, update_target, update_link, file_hash) 
 VALUES (?, ?, ?, ?, ?); """
-sql_get_updates: str = """ SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY update_id DESC; """
+sql_get_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY 
+update_id ASC;"""
 sql_get_updates_count: str = """ SELECT count(update_date) FROM updates WHERE update_date = ?; """
-sql_get_last_updates: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
+sql_get_last_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
+update_date = ?;"""
 sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY update_id DESC LIMIT 1; """
 sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
-sql_get_date_update: str = """ SELECT update_date, update_product, update_target, update_link FROM updates WHERE update_date = ?; """
+sql_get_date_update: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
+update_date = ?;"""
 
-def get_config():
-    global apple_file, db_file, log_file, localtime, bot_token, chat_ids
-    config = open('config.json', 'r')
+
+def get_config(local_path):
+    global apple_url, db_file, log_file, localtime, bot_token, chat_ids
+    config = open(f'{local_path}/config.json', 'r')
     data = json.loads(config.read())
-    apple_file = data['apple_file']
+    apple_url = data['apple_url']
     db_file = data['db_file']
     log_file = data['log_file']
     timezone = data['timezone']
@@ -67,20 +63,12 @@ def create_connection(file):
         logging.error(str(error))
     return conn
 
-def create_table(conn, sql_create_table, table_name, file):
-    with contextlib.suppress(Error):
-        try:
-            conn.cursor().execute(sql_create_table)
-            logging.info(f'\'{file}\' - \'{table_name}\' table created.')
-        except Error as error:
-            logging.error(str(error))
-
 def get_updates(conn, full_update):
     cursor = conn.cursor()
-    response = requests.get(apple_file)
+    response = requests.get(apple_url)
     content = response.content
     file_hash = hashlib.sha256(content).hexdigest()
-    available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] == 0
+    available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] < 1
     if not available_updates:
         logging.info('No updates available.')
     else:
@@ -115,10 +103,12 @@ def update_updates_database(conn, file_hash, content, full_update):
         old_updates = cursor.execute(sql_get_updates).fetchall()
         for element in old_updates:
             recent_updates.remove(element)
+    recent_updates.reverse()
     for element in recent_updates:
         cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
     logging.info(log_message)
     conn.commit()
+    recent_updates.reverse()
     apprise_notification(conn, recent_updates, full_update)
 
 def formatted_content(content):
@@ -138,7 +128,6 @@ def formatted_content(content):
             update_link = None
         list_element = [update_date, update_product, update_target, update_link]
         content_list.append(list_element)
-    content_list.reverse()
     return content_list
 
 def check_date(date_str):
@@ -161,7 +150,7 @@ def apprise_notification(conn, updates, full_update):
     apprise_syntax = f'tgram://{bot_token}/'
     for chat_id in chat_ids:
         apprise_syntax += f'{chat_id}/'
-    apprise_syntax *= '?format=markdown'
+    apprise_syntax += '?format=markdown'
     apprise_object.add(apprise_syntax, tag='telegram')
     apprise_object.notify(apprise_message, tag="telegram")
 
@@ -172,7 +161,7 @@ def build_message(conn, last_updates, full_update):
         last_updates = []
         update_dates = cursor.execute(sql_get_update_dates).fetchall()
         for element in reversed(update_dates):
-            if max_updates >= 0:
+            if max_updates > 0:
                 query = cursor.execute(sql_get_date_update, element).fetchall()
                 query_count = cursor.execute(sql_get_updates_count, element).fetchone()[0]
                 last_updates += query
@@ -195,7 +184,9 @@ def build_message(conn, last_updates, full_update):
     return apprise_message
 
 def main():
-    get_config()
+    local_file = __file__
+    local_path = os.path.dirname(local_file)
+    get_config(local_path)
 
     # logging
     log_format = '%(asctime)s -- %(message)s'
@@ -203,23 +194,9 @@ def main():
 
     # create a database connection
     conn: Connection = create_connection(db_file)
-    cursor = conn.cursor()
-    empty_database = cursor.execute(sql_check_empty_database).fetchone()[0] == 0
-    if empty_database:
-        # create database tables and populate them
-        create_table(conn, sql_create_main_table, 'main', db_file)
-        create_table(conn, sql_create_updates_table, 'updates', db_file)
 
     # run first database update
     get_updates(conn, full_update=True)
-
-    # Schedule the function to run every hour
-    schedule.every().hour.do(get_updates, conn=conn, full_update=False)
-
-    # Run the scheduler continuously
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
 
 if __name__ == '__main__':
     main()
