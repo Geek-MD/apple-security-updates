@@ -12,11 +12,16 @@ Clone this repo with...
 git clone https://github.com/Geek-MD/apple-security-updates-notifier.git
 ```
 
-Now execute the *start.sh* file with the following command. This will install all dependencies needed by the script
-listed on *requirements.txt*.
+Make *setup.sh* executable with the following command.
 
 ```
-./start.sh
+chmod u+x setup.sh
+```
+
+Now execute the *setup.sh* file with the following command. This will create a virtual environment for python execution and install all dependencies needed by the script listed on *requirements.txt*.
+
+```
+./setup.sh
 ```
 
 Once the script is finished, you will get help information on how to run the python script.
