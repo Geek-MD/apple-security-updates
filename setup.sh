@@ -15,4 +15,5 @@ if [ -f "requirements.txt" ]; then
     pip install -r ./requirements.txt
 fi
 
+echo ''
 python3 ./asu-notifier.py -h
