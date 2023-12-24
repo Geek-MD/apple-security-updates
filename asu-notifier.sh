@@ -1,11 +1,17 @@
-#!/bin/sh
+#!/bin/bash
 
-# filename: asu-notifier.sh
+env_name="venv"
+# shellcheck disable=SC1090
+source "./$env_name/bin/activate"
 
-LOCAL_DIR=$(pwd)
-
-sudo cp $LOCAL_DIR/asu-notifier.service /etc/systemd/system/asu-notifier.service
-
-sudo systemctl daemon-reload
-sudo systemctl enable asu-notifier.service
-sudo systemctl start asu-notifier.service
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    python3 ./asu-notifier.py -h
+    exit 0
+elif [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    python3 ./asu-notifier.py -v
+    exit 0
+else
+    # shellcheck disable=SC2068
+    python3 ./asu-notifier.py $@
+    exit 0
+fi
