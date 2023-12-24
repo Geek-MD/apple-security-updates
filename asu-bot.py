@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.2
+# Apple Security Updates Notifier v0.5.0
 # File: asu-bot.py
 # Description: Secondary component of ASU Notifier, which will run hourly and notify via Telegram of any new security
 # update.
@@ -22,36 +22,40 @@ import requests
 from apprise import Apprise
 from bs4 import BeautifulSoup
 
-# set global variables
-global apple_url, db_file, log_file, localtime, bot_token, chat_ids
-
 # SQL queries
 sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash = ? """
 sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
 sql_updates_table: str = """ INSERT INTO updates (update_date, update_product, update_target, update_link, file_hash) 
 VALUES (?, ?, ?, ?, ?); """
 sql_get_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY 
-update_id ASC;"""
+update_id DESC;"""
 sql_get_updates_count: str = """ SELECT count(update_date) FROM updates WHERE update_date = ?; """
 sql_get_last_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
 update_date = ?;"""
 sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY update_id DESC LIMIT 1; """
-sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
+sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates ORDER BY update_id DESC; """
 sql_get_date_update: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
-update_date = ?;"""
+update_date = ? ORDER BY update_id DESC;"""
+sql_empty_database: str = """SELECT COUNT(*) FROM main;"""
 
 
 def get_config(local_path):
-    global apple_url, db_file, log_file, localtime, bot_token, chat_ids
-    config = open(f'{local_path}/config.json', 'r')
-    data = json.loads(config.read())
-    apple_url = data['apple_url']
-    db_file = data['db_file']
-    log_file = data['log_file']
-    timezone = data['timezone']
+    init_file = f"{local_path}/init.json"
+    config_file = f"{local_path}/config.json"
+    log_file = f"{local_path}/asu-notifier.log"
+    db_file = f"{local_path}/asu-notifier.db"
+
+    init = open(init_file, 'r')
+    init_data = json.loads(init.read())
+    apple_url = init_data['apple_url']
+
+    config = open(config_file, 'r')
+    config_data = json.loads(config.read())
+    timezone = config_data['timezone']
     localtime = pytz.timezone(timezone)
-    bot_token = data['bot_token']
-    chat_ids = data['chat_ids']
+    bot_token = config_data['bot_token']
+    channels = config_data['channels']
+    return apple_url, db_file, log_file, localtime, bot_token, channels
 
 def create_connection(file):
     if not os.path.isfile(file):
@@ -63,7 +67,8 @@ def create_connection(file):
         logging.error(str(error))
     return conn
 
-def get_updates(conn, full_update):
+def get_updates(conn, full_update, apple_url, localtime):
+    recent_updates = []
     cursor = conn.cursor()
     response = requests.get(apple_url)
     content = response.content
@@ -71,17 +76,19 @@ def get_updates(conn, full_update):
     available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] < 1
     if not available_updates:
         logging.info('No updates available.')
+        conn.close()
+        return False, recent_updates
     else:
-        update_databases(conn, content, file_hash, full_update)
-    conn.commit()
-    conn.close()
+        recent_updates = populate_tables(conn, content, file_hash, full_update, localtime)
+        conn.close()
+        return True, recent_updates
 
-def update_databases(conn, content, file_hash, full_update):
+def populate_tables(conn, content, file_hash, full_update, localtime):
     log_date = datetime.now(tz=localtime)
-    update_main_database(conn, log_date, file_hash, full_update)
-    update_updates_database(conn, file_hash, content, full_update)
+    populate_main_table(conn, log_date, file_hash, full_update)
+    return populate_updates_table(conn, file_hash, content, full_update)
 
-def update_main_database(conn, log_date, file_hash, full_update):
+def populate_main_table(conn, log_date, file_hash, full_update):
     cursor = conn.cursor()
     if full_update:
         log_message = f'First \'main\' table population - SHA256: {file_hash}.'
@@ -91,7 +98,7 @@ def update_main_database(conn, log_date, file_hash, full_update):
     logging.info(log_message)
     conn.commit()
 
-def update_updates_database(conn, file_hash, content, full_update):
+def populate_updates_table(conn, file_hash, content, full_update):
     cursor = conn.cursor()
     soup = BeautifulSoup(content, 'html.parser')
     updates_table = soup.find('div', id="tableWraper").find_all('tr')
@@ -100,16 +107,15 @@ def update_updates_database(conn, file_hash, content, full_update):
         log_message = f'First \'updates\' table population - SHA256: {file_hash}.'
     else:
         log_message = f'\'updates\' table updated - SHA256: {file_hash}.'
-        old_updates = cursor.execute(sql_get_updates).fetchall()
+        query = cursor.execute(sql_get_updates).fetchall()
+        old_updates = [list(t) for t in query]
         for element in old_updates:
             recent_updates.remove(element)
-    recent_updates.reverse()
-    for element in recent_updates:
+    for element in reversed(recent_updates):
         cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
     logging.info(log_message)
     conn.commit()
-    recent_updates.reverse()
-    apprise_notification(conn, recent_updates, full_update)
+    return recent_updates
 
 def formatted_content(content):
     content_list = []
@@ -126,8 +132,8 @@ def formatted_content(content):
             update_link = columns[0].find('a')['href']
         except Exception:
             update_link = None
-        list_element = [update_date, update_product, update_target, update_link]
-        content_list.append(list_element)
+        element = [update_date, update_product, update_target, update_link]
+        content_list.append(element)
     return content_list
 
 def check_date(date_str):
@@ -144,12 +150,12 @@ def check_date(date_str):
     except Exception:
         return date_str
 
-def apprise_notification(conn, updates, full_update):
+def apprise_notification(conn, updates, full_update, bot_token, channels):
     apprise_object = Apprise()
     apprise_message = build_message(conn, updates, full_update)
     apprise_syntax = f'tgram://{bot_token}/'
-    for chat_id in chat_ids:
-        apprise_syntax += f'{chat_id}/'
+    for channel in channels:
+        apprise_syntax += f'{channel}/'
     apprise_syntax += '?format=markdown'
     apprise_object.add(apprise_syntax, tag='telegram')
     apprise_object.notify(apprise_message, tag="telegram")
@@ -160,16 +166,18 @@ def build_message(conn, last_updates, full_update):
     if full_update:
         last_updates = []
         update_dates = cursor.execute(sql_get_update_dates).fetchall()
-        for element in reversed(update_dates):
+        for index, element in enumerate(update_dates):
             if max_updates > 0:
-                query = cursor.execute(sql_get_date_update, element).fetchall()
-                query_count = cursor.execute(sql_get_updates_count, element).fetchone()[0]
-                last_updates += query
+                value = element[index]
+                query = cursor.execute(sql_get_date_update, value).fetchall()
+                query_count = cursor.execute(sql_get_updates_count, value).fetchone()[0]
+                updates = [list(t) for t in query]
+                last_updates += updates
                 max_updates -= query_count
         apprise_message = '*Últimas actualizaciones de Apple.*\n\n'
     else:
         apprise_message = '*Nuevas actualizaciones de Apple.*\n\n'
-    for element in reversed(last_updates):
+    for element in last_updates:
         if element[0] == 'Preinstalado':
             date_time = element[0]
         else:
@@ -186,17 +194,22 @@ def build_message(conn, last_updates, full_update):
 def main():
     local_file = __file__
     local_path = os.path.dirname(local_file)
-    get_config(local_path)
+    apple_url, db_file, log_file, localtime, bot_token, channels = get_config(local_path)
 
     # logging
     log_format = '%(asctime)s -- %(message)s'
     logging.basicConfig(filename=log_file, encoding='utf-8', format=log_format, level=logging.INFO)
 
-    # create a database connection
+    # check if database is empty or not
     conn: Connection = create_connection(db_file)
+    full_update = conn.cursor().execute(sql_empty_database).fetchone()[0] == 0
 
     # run first database update
-    get_updates(conn, full_update=True)
+    updates_check, updates = get_updates(conn, full_update, apple_url, localtime)
+
+    # run notifications
+    if updates_check:
+        apprise_notification(conn, updates, full_update, bot_token, channels)
 
 if __name__ == '__main__':
     main()

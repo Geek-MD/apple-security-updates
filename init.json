@@ -1,0 +1,7 @@
+{
+  "progname": "./asu-notifier.sh",
+  "prog_name_short": "asu-notifier",
+  "prog_name_long": "Apple Security Updates Notifier",
+  "version": "v0.5.0",
+  "apple_url": "https://support.apple.com/es-es/HT201222"
+}

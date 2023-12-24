@@ -8,6 +8,7 @@ if [ -d "$env_name" ]; then
 fi
 
 python3 -m venv "$env_name"
+# shellcheck disable=SC1090
 source "./$env_name/bin/activate"
 pip install -U pip
 
