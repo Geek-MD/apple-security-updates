@@ -29,6 +29,8 @@ sql_create_updates_table: str = """CREATE TABLE IF NOT EXISTS updates ( update_i
 update_date text NOT NULL, update_product text NOT NULL, update_target text NOT NULL, update_link text, 
 file_hash text NOT NULL );"""
 
+timezones_list = pytz.all_timezones
+
 def create_connection(file):
     if not os.path.isfile(file):
         logging.info(f'\'{file}\' database created.')
@@ -90,52 +92,62 @@ def token_validator(bot_token):
     token_info = token_json.json()
     return token_info["ok"]
 
+
 def timezone_selection(country_code):
     country_name = pycountry.countries.get(alpha_2=country_code).name
     country_timezones = pytz.country_timezones[country_code]
     country_tz_len = len(country_timezones)
-    selection = False
+
     print(f'{country_name} [{country_code}] timezones:')
     print('0: Switch back to default timezone (UTC)')
+
     if country_tz_len == 1:
         return country_timezones[0]
+
     for i, tz in enumerate(country_timezones):
         print(f'{i + 1}: {tz}')
-    while not selection:
+
+    while True:
         tz_selection = input("Select a timezone: ")
-        index = int(tz_selection) - 1
-        if int(tz_selection) == 0:
-            selection = True
-            return 'UTC'
-        elif country_tz_len >= int(tz_selection) > 0:
-            selection = True
-            return country_timezones[index]
-        else:
-            print(f'Wrong choice, pick a number between 0 and {country_tz_len}')
+        try:
+            selection = int(tz_selection)
+            if selection == 0:
+                return 'UTC'
+            elif 0 < selection <= country_tz_len:
+                return country_timezones[selection - 1]
+            else:
+                print(f'Wrong choice, pick a number between 0 and {country_tz_len}')
+        except ValueError:
+            print("Please enter a valid number")
+
 
 def undefined_timezone():
-    external_ip = urllib.request.urlopen('https://ident.me').read().decode('utf8')
-    location_data = requests.get(f'https://ipapi.co/{external_ip}/json/').json()
-    country_name = location_data.get("country_name")
-    country_code = location_data.get("country_code")
-    if country_code is None or country_name is None:
-        print(f"I can´t identify your country based on your IP [{external_ip}], so you have to set timezone or "
-              f"country manually.")
-        exit(1)
-    else:
-        print(f"""According to your IP address [{external_ip}], it seems that your country is {country_name} 
-[{country_code}]""")
-        selection = False
-        while not selection:
+    try:
+        external_ip = urllib.request.urlopen('https://ident.me').read().decode('utf8')
+        location_data = requests.get(f'https://ipapi.co/{external_ip}/json/').json()
+        country_name = location_data.get("country_name")
+        country_code = location_data.get("country_code")
+
+        if country_code is None or country_name is None:
+            print(f"I can't identify your country based on your IP [{external_ip}], so you have to set timezone or "
+                  f"country manually.")
+            return None
+        else:
+            print(f"According to your IP address [{external_ip}], it seems that your country is {country_name} "
+                  f"[{country_code}]")
             answer = input("Is this correct? (y/n): ")
             if answer == 'n':
-                print("""I can´t identify your country based on your IP, so you have to set timezone or country 
-manually.""")
-                selection = True
-                exit(1)
+                print("I can't identify your country based on your IP, so you have to set timezone or country "
+                      "manually.")
+                return None
             elif answer == 'y':
-                selection = True
                 return timezone_selection(country_code)
+            else:
+                print("Invalid input. Please enter 'y' or 'n'.")
+                return None
+    except Exception as e:
+        print("An error occurred while trying to determine your timezone:", e)
+        return None
 
 def set_timezone(country_code):
     country_names = pytz.country_names
@@ -148,23 +160,26 @@ def set_timezone(country_code):
         return timezone_selection(country_code.upper())
 
 def check_timezone(timezone):
-    timezones_list = pytz.all_timezones
     if timezone.upper() == "X":
         return undefined_timezone()
     elif timezone == 'UTC':
-        print(f'\nTimezone is set to it\'s default value [UTC].')
-        selection = False
-        while not selection:
-            answer = input("Are you OK with it? (y/n): ")
+        print('\nTimezone is set to its default value [UTC].')
+        while True:
+            answer = input("Are you OK with it? (y/n): ").strip().lower()
             if answer == 'n':
-                selection = True
                 return undefined_timezone()
             elif answer == 'y':
-                selection = True
                 return 'UTC'
+            else:
+                print("Please enter 'y' or 'n'.")
     elif timezone not in timezones_list:
-        print("Incorrect timezone.")
-        exit(1)
+        while True:
+            print("Incorrect timezone.")
+            timezone = input("Please enter a valid timezone or 'X' to undefined: ").strip()
+            if timezone.upper() == "X":
+                return undefined_timezone()
+            elif timezone in timezones_list:
+                return timezone
     else:
         return timezone
 
@@ -189,18 +204,17 @@ def get_chat_ids():
     chat_ids = []
     print("\nType in chat ids where the script will notify Apple Updates. To finish input, type \"0\".")
     print("Remember to include the minus sign before each chat id like \"-6746386747\".")
-    selection = False
     counter = 1
-    while not selection:
+    while True:
         answer = input(f'Type in chat id #{counter}: ')
         if answer == '0':
-            selection = True
-            return chat_ids
-        elif re.search(regex, answer):
+            break
+        elif re.match(regex, answer):
             chat_ids.append(answer)
             counter += 1
         else:
             print("Incorrect format, try again.")
+    return chat_ids
 
 def argument_parser(progname_short, progname_long, ver):
     description = f'{progname_long} is python program that will notify you through Telegram, about new Apple updates.'
