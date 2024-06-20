@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.2
+# Apple Security Updates Notifier v0.4.3
 # File: asu-notifier.py
-# Description: Main component of ASU Notifier, used to create config.json file, initialize the database, and set a
-# cronjob which will run the secondary component of ASU Notifier hourly.
+# Description: Main component of Apple Security Updates Notifier. Once executed it creates config.json file, initializes
+# the associated database, and sets a cronjob which will run the secondary component of ASU Notifier hourly.
 
 import argparse
+import contextlib
 import json
+import logging
 import os
 import re
+import sqlite3
+import subprocess
 import textwrap
 import urllib.request
-import sqlite3
+from sqlite3 import Error, Connection
+from typing import TypeVar
+
 import pycountry
 import pytz
 import requests
-import logging
-import contextlib
-from sqlite3 import Error, Connection
 from crontab import CronTab
-from typing import TypeVar
 
 # SQL queries
 sql_check_empty_database: str = """ SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='main' """
-sql_create_main_table: str = """CREATE TABLE IF NOT EXISTS main ( main_id integer PRIMARY KEY AUTOINCREMENT, log_date 
+sql_create_main_table: str = """CREATE TABLE IF NOT EXISTS main ( main_id integer PRIMARY KEY AUTOINCREMENT, publish_date 
 text NOT NULL, file_hash text NOT NULL, log_message text NOT NULL );"""
 sql_create_updates_table: str = """CREATE TABLE IF NOT EXISTS updates ( update_id integer PRIMARY KEY AUTOINCREMENT, 
 update_date text NOT NULL, update_product text NOT NULL, update_target text NOT NULL, update_link text, 
@@ -31,15 +33,17 @@ file_hash text NOT NULL );"""
 
 timezones_list = pytz.all_timezones
 
+
 def create_connection(file):
     if not os.path.isfile(file):
-        logging.info(f'\'{file}\' database created.')
+        logging.info(f'\'{file}\' - database created.')
     conn = TypeVar('conn', Connection, None)
     try:
         conn: Connection = sqlite3.connect(file)
     except Error as error:
         logging.error(str(error))
     return conn
+
 
 def create_table(conn, sql_create_table, table_name, file):
     with contextlib.suppress(Error):
@@ -48,6 +52,7 @@ def create_table(conn, sql_create_table, table_name, file):
             logging.info(f'\'{file}\' - \'{table_name}\' table created.')
         except Error as error:
             logging.error(str(error))
+
 
 def get_config(local_path):
     config = open(f'{local_path}/asu-notifier.json', 'r')
@@ -58,6 +63,7 @@ def get_config(local_path):
     apple_url = data['apple_url']
     return prog_name_short, prog_name_long, version, apple_url
 
+
 def create_config_json(local_path, apple_url, prog_name, bot_token, chat_ids, tzone):
     config_str = f"""  "apple_url": "{apple_url}",
   "db_file": "{local_path}/{prog_name}.db",
@@ -67,7 +73,7 @@ def create_config_json(local_path, apple_url, prog_name, bot_token, chat_ids, tz
   "chat_ids": [
 """
     for i, value in enumerate(chat_ids):
-        if i+1 < len(chat_ids):
+        if i + 1 < len(chat_ids):
             config_str += f'    "{value}", \n'
         else:
             config_str += f'    "{value}"\n'
@@ -76,6 +82,7 @@ def create_config_json(local_path, apple_url, prog_name, bot_token, chat_ids, tz
     with open(f"{local_path}/config.json", "w") as file:
         file.write(config_str)
     return f'{local_path}/{prog_name}.log', f'{local_path}/{prog_name}.db'
+
 
 def crontab_job(working_dir):
     cronjob = CronTab(user=True)
@@ -86,6 +93,7 @@ def crontab_job(working_dir):
         job.setall('0 */6 * * *')
         job.enable()
     cronjob.write()
+
 
 def token_validator(bot_token):
     token_json = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe")
@@ -149,6 +157,7 @@ def undefined_timezone():
         print("An error occurred while trying to determine your timezone:", e)
         return None
 
+
 def set_timezone(country_code):
     country_names = pytz.country_names
     if country_code.upper() == 'X':
@@ -158,6 +167,7 @@ def set_timezone(country_code):
         exit(1)
     else:
         return timezone_selection(country_code.upper())
+
 
 def check_timezone(timezone):
     if timezone.upper() == "X":
@@ -183,11 +193,13 @@ def check_timezone(timezone):
     else:
         return timezone
 
+
 def check_chat_ids(chat_ids):
     if type(chat_ids) is list:
         return chat_ids
     print('Wrong format of "chat ids", it must me a list. Defaulting to UTC.')
     return 'UTC'
+
 
 def check_bot_token(bot_token):
     regex = "^[0-9]*:[a-zA-Z0-9_-]{35}$"
@@ -198,6 +210,7 @@ def check_bot_token(bot_token):
             exit(1)
     else:
         exit(1)
+
 
 def get_chat_ids():
     regex = "(-[0-9]+)"
@@ -215,6 +228,7 @@ def get_chat_ids():
         else:
             print("Incorrect format, try again.")
     return chat_ids
+
 
 def argument_parser(progname_short, progname_long, ver):
     description = f'{progname_long} is python program that will notify you through Telegram, about new Apple updates.'
@@ -253,6 +267,7 @@ after another separated by a space, like \"-123456 -4567890\"."""
     if check_bot_token(bot_token):
         return bot_token, timezone, chat_ids
 
+
 def main():
     local_file = __file__
     local_path = os.path.dirname(local_file)
@@ -273,8 +288,10 @@ def main():
         # create database tables and populate them
         create_table(conn, sql_create_main_table, 'main', db_file)
         create_table(conn, sql_create_updates_table, 'updates', db_file)
+        subprocess.run(['python', 'asu-bot.py'], capture_output=True, text=True)
 
     crontab_job(local_path)
+
 
 if __name__ == '__main__':
     main()

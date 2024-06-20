@@ -12,17 +12,10 @@ Clone this repo with...
 git clone https://github.com/Geek-MD/apple-security-updates-notifier.git
 ```
 
-Make excutable *start.sh* and *asu-notifier.py* files with
+Now execute the *setup.sh* file with the following command.
 
 ```
-chmod u+x start.sh
-chmod u+x asu-notifier.py
-```
-
-Now execute the *start.sh* file with the following command. This will install all dependencies needed by the script listed on *requirements.txt*.
-
-```
-./start.sh
+bash setup.sh
 ```
 
 Once the script is finished, you will get help information on how to run the python script.
@@ -78,12 +71,12 @@ For timezone configuration through country code, you can use *-c* or *--country*
 
 ### Chat ids configuration
 
-For chat ids configuration you can use *-i* or *--chat-ids* followed by chat ids separated by a space between them. Don't forget to add the minus sign before the numeric code of the chat id.
+For chat ids configuration you can use *-i* or *--chat-ids* followed by chat ids separated by a space between them and enclosed in single hyphens. Don't forget to add the minus sign before the numeric code of the chat id.
 If you don't provide chat ids at startup, the script will ask for them one by one, and you will have to type "0" to finish the input.
 
 ```
 ./asu-notifier.py -b <bot_token> -i <chat_id_1>
-./asu-notifier.py --bot-token <bot_token> --chat-ids <chat_id_1> <chat_id_2>
+./asu-notifier.py --bot-token <bot_token> --chat-ids '<chat_id_1> <chat_id_2>'
 ```
 
 ## Note
