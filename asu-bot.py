@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.2
+# Apple Security Updates Notifier v0.4.3
 # File: asu-bot.py
-# Description: Secondary component of ASU Notifier, which will run hourly and notify via Telegram of any new security
-# update.
+# Description: Secondary component of Apple Security Updates Notifier, which will run hourly and notify via Telegram any
+# new security update.
 
-import datetime
 import hashlib
 import json
 import logging
@@ -13,11 +12,11 @@ import os
 import os.path
 import re
 import sqlite3
-import pytz
-import requests
-from datetime import datetime
 from sqlite3 import Error, Connection
 from typing import TypeVar
+
+import pytz
+import requests
 from apprise import Apprise
 from bs4 import BeautifulSoup
 
@@ -25,19 +24,16 @@ from bs4 import BeautifulSoup
 global apple_url, db_file, log_file, localtime, bot_token, chat_ids
 
 # SQL queries
-sql_main_table_hash_check: str = """ SELECT COUNT(*) FROM main WHERE file_hash = ? """
-sql_main_table: str = """ INSERT INTO main (log_date, file_hash, log_message) VALUES (?, ?, ?); """
+sql_last_hash: str = """ SELECT file_hash FROM main ORDER BY main_id DESC LIMIT 1; """
+sql_last_publish_date: str = """ SELECT publish_date FROM main ORDER BY main_id DESC LIMIT 1; """
+sql_main_table: str = """ INSERT INTO main (publish_date, file_hash, log_message) VALUES (?, ?, ?); """
 sql_updates_table: str = """ INSERT INTO updates (update_date, update_product, update_target, update_link, file_hash) 
 VALUES (?, ?, ?, ?, ?); """
 sql_get_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates ORDER BY 
-update_id ASC;"""
-sql_get_updates_count: str = """ SELECT count(update_date) FROM updates WHERE update_date = ?; """
-sql_get_last_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
-update_date = ?;"""
-sql_get_last_update_date: str = """ SELECT update_date FROM updates ORDER BY update_id DESC LIMIT 1; """
-sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates; """
-sql_get_date_update: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
-update_date = ?;"""
+update_id DESC;"""
+sql_get_update_dates: str = """ SELECT DISTINCT update_date FROM updates ORDER BY update_id DESC LIMIT 5; """
+sql_get_date_updates: str = """SELECT update_date, update_product, update_target, update_link FROM updates WHERE 
+update_date = ? ORDER BY update_id DESC;"""
 
 def get_config(local_path):
     global apple_url, db_file, log_file, localtime, bot_token, chat_ids
@@ -61,86 +57,94 @@ def create_connection(file):
         logging.error(str(error))
     return conn
 
-def get_updates(conn, full_update):
-    cursor = conn.cursor()
-    response = requests.get(apple_url)
+def page_scrape(url, conn):
+    response = requests.get(url)
     content = response.content
+    soup = BeautifulSoup(content, 'html.parser')
+    publish_date = soup.find('div', {'class': 'mod-date'}).time['datetime']
     file_hash = hashlib.sha256(content).hexdigest()
-    available_updates = cursor.execute(sql_main_table_hash_check, [file_hash]).fetchone()[0] < 1
-    if not available_updates:
+    check_content(content, publish_date, file_hash, conn)
+
+def check_content(content, publish_date, file_hash, conn):
+    cursor = conn.cursor()
+    query_hash = cursor.execute(sql_last_hash).fetchone()
+    query_date = cursor.execute(sql_last_publish_date).fetchone()
+    if query_hash == file_hash and query_date == publish_date:
         logging.info('No updates available.')
+        exit()
+    elif query_hash != file_hash and query_date == publish_date:
+        logging.info('No updates available but, there are differences in file hash. Check url for eventual changes.')
+        exit()
+    elif query_hash is None or query_date is None:
+        update_databases(conn, content, publish_date, file_hash, full_update=True)
     else:
-        update_databases(conn, content, file_hash, full_update)
-    conn.commit()
+        update_databases(conn, content, publish_date, file_hash, full_update=False)
+
+def update_databases(conn, content, publish_date, file_hash, full_update):
+    main_database_update(conn, publish_date, file_hash, full_update)
+    updates_database_update(conn, content, file_hash, full_update)
     conn.close()
 
-def update_databases(conn, content, file_hash, full_update):
-    log_date = datetime.now(tz=localtime)
-    update_main_database(conn, log_date, file_hash, full_update)
-    update_updates_database(conn, file_hash, content, full_update)
-
-def update_main_database(conn, log_date, file_hash, full_update):
+def main_database_update(conn, publish_date, file_hash, full_update):
     cursor = conn.cursor()
     if full_update:
-        log_message = f'First \'main\' table population - SHA256: {file_hash}.'
+        log_message = f'\'main\' table first update - SHA256: {file_hash}.'
     else:
         log_message = f'\'main\' table updated - SHA256: {file_hash}.'
-    cursor.execute(sql_main_table, (log_date, file_hash, log_message))
+    cursor.execute(sql_main_table, (publish_date, file_hash, log_message))
     logging.info(log_message)
     conn.commit()
 
-def update_updates_database(conn, file_hash, content, full_update):
+def updates_database_update(conn, content, file_hash, full_update):
     cursor = conn.cursor()
     soup = BeautifulSoup(content, 'html.parser')
-    updates_table = soup.find('div', id="tableWraper").find_all('tr')
-    recent_updates = formatted_content(updates_table)
+    content_updates = soup.find('div', id="tableWraper").find_all('tr')
+    updates = updates_scrape(content_updates)
     if full_update:
-        log_message = f'First \'updates\' table population - SHA256: {file_hash}.'
+        log_message = f'\'updates\' table first update - SHA256: {file_hash}.'
     else:
         log_message = f'\'updates\' table updated - SHA256: {file_hash}.'
-        old_updates = cursor.execute(sql_get_updates).fetchall()
-        for element in old_updates:
-            recent_updates.remove(element)
-    recent_updates.reverse()
-    for element in recent_updates:
+        previous_updates = cursor.execute(sql_get_updates).fetchall()
+        for element in previous_updates:
+            if element in updates:
+                updates.remove(element)
+    for element in reversed(updates):
         cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
     logging.info(log_message)
     conn.commit()
-    recent_updates.reverse()
-    apprise_notification(conn, recent_updates, full_update)
+    apprise_notification(conn, updates, full_update)
 
-def formatted_content(content):
-    content_list = []
-    for i, row in enumerate(content):
-        if i == 0:
-            continue
+def updates_scrape(content_updates):
+    updates = []
+    for row in content_updates[1:]:
         columns = row.find_all('td')
-        date_str = columns[2].get_text().strip().replace('\xa0', ' ')
-        update_date = check_date(date_str)
-        update_product = columns[0].get_text().strip().replace(
-            'Esta actualización no tiene ninguna entrada de CVE publicada.', '').replace('\xa0', ' ').replace('\n', '')
-        update_target = columns[1].get_text().replace('\xa0', ' ').replace('\n', '')
-        try:
-            update_link = columns[0].find('a')['href']
-        except Exception:
-            update_link = None
-        list_element = [update_date, update_product, update_target, update_link]
-        content_list.append(list_element)
-    return content_list
+        update_link = columns[0].find('a')['href'] if columns[0].find('a') else None
+        product_name = columns[0].get_text().strip().replace('Esta actualización no tiene entradas de CVE publicadas.',
+                                                             '').replace('\xa0', ' ').replace('\n', '')
+        update_target = columns[1].get_text().strip().replace('\xa0', ' ').replace('\n', '')
+        date_str = columns[2].get_text().strip().replace('\xa0', ' ').replace('\n', '')
+        if date_str == 'Preinstalado':
+            update_date = date_str
+        else:
+            update_date = check_date(date_str)
+        updates_row = (update_date, product_name, update_target, update_link)
+        updates.append(updates_row)
+    return updates
 
 def check_date(date_str):
     pattern = r'(\d{1,2}) de (\w+) de (\d{4})'
+    match = re.match(pattern, date_str)
+    if not match:
+        raise ValueError(f"Invalid date format: {date_str}")
+    day, month, year = match.groups()
+    month_list = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre',
+                  'noviembre', 'diciembre']
     try:
-        match = re.match(pattern, date_str)
-        day = int(match[1])
-        month = match[2]
-        year = int(match[3])
-        month_list = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre',
-                      'noviembre', 'diciembre']
-        month_num = month_list.index(month) + 1
-        return datetime(year, month_num, day)
-    except Exception:
-        return date_str
+        month_num = month_list.index(month.lower()) + 1
+    except ValueError:
+        raise ValueError(f"Invalid month name: {month}")
+    new_date = f'{year}-{str(month_num).zfill(2)}-{str(day).zfill(2)}'
+    return new_date
 
 def apprise_notification(conn, updates, full_update):
     apprise_object = Apprise()
@@ -152,49 +156,53 @@ def apprise_notification(conn, updates, full_update):
     apprise_object.add(apprise_syntax, tag='telegram')
     apprise_object.notify(apprise_message, tag="telegram")
 
-def build_message(conn, last_updates, full_update):
-    max_updates = 5
+def build_message(conn, updates, full_update):
     cursor = conn.cursor()
+    last_updates = []
     if full_update:
-        last_updates = []
         update_dates = cursor.execute(sql_get_update_dates).fetchall()
-        for element in reversed(update_dates):
-            if max_updates > 0:
-                query = cursor.execute(sql_get_date_update, element).fetchall()
-                query_count = cursor.execute(sql_get_updates_count, element).fetchone()[0]
-                last_updates += query
-                max_updates -= query_count
-        apprise_message = '*Últimas actualizaciones de Apple.*\n\n'
+        for date in update_dates:
+            query = cursor.execute(sql_get_date_updates, date).fetchall()
+            last_updates += query
+        apprise_message = '*Últimas actualizaciones de Apple*\n\n'
     else:
-        apprise_message = '*Nuevas actualizaciones de Apple.*\n\n'
-    for element in reversed(last_updates):
-        if element[0] == 'Preinstalado':
-            date_time = element[0]
-        else:
-            date = datetime.strptime(str(element[0]), "%Y-%m-%d %H:%M:%S")
-            date_time = date.strftime("%d/%m/%Y")
+        apprise_message = '*Nuevas actualizaciones de Apple*\n\n'
+        last_updates = updates
+    for element in last_updates:
+        date_time = encode_telegram_markdown(element[0])
+        update_product = encode_telegram_markdown(element[1])
+        update_target = encode_telegram_markdown(element[2])
+        update_link = encode_telegram_markdown(element[3])
         apprise_message += f'_{date_time}_'
-        if element[3] is not None:
-            apprise_message += f' - [{element[1]}]({element[3]})'
+        if update_link is not None:
+            apprise_message += f' \- [{update_product}]({update_link})'
         else:
-            apprise_message += f' - _{element[1]}_'
-        apprise_message += f' - {element[2]}\n'
+            apprise_message += f' \- _{update_product}_'
+        apprise_message += f' \- {update_target}\n\n'
     return apprise_message
+
+def encode_telegram_markdown(text):
+    if text is None:
+        return None
+    reserved_chars = ['%', '&', '#', '?', ' ', '/', '@', '+', ',', ':', '-', '.', '(', ')']
+    replace_chars = ['\%', '\&', '\#', '\?', '\ ', '\/', '\@', '\+', '\,', '\:', '\-', '\.', '\(', '\)']
+    encoded_text = text
+    for char, replace_char in zip(reserved_chars, replace_chars):
+        if encoded_text is not None and char in encoded_text:
+            encoded_text = encoded_text.replace(char, replace_char)
+    return encoded_text
 
 def main():
     local_file = __file__
     local_path = os.path.dirname(local_file)
     get_config(local_path)
 
-    # logging
     log_format = '%(asctime)s -- %(message)s'
     logging.basicConfig(filename=log_file, encoding='utf-8', format=log_format, level=logging.INFO)
 
-    # create a database connection
     conn: Connection = create_connection(db_file)
 
-    # run first database update
-    get_updates(conn, full_update=True)
+    page_scrape(apple_url, conn)
 
 if __name__ == '__main__':
     main()
