@@ -78,7 +78,3 @@ If you don't provide chat ids at startup, the script will ask for them one by on
 ./asu-notifier.py -b <bot_token> -i <chat_id_1>
 ./asu-notifier.py --bot-token <bot_token> --chat-ids '<chat_id_1> <chat_id_2>'
 ```
-
-## Note
-
-This is a first workaround attempt for a permanent bot in the near future, instead of a self-hosted bot.
