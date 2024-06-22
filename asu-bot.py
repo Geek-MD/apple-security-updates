@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 global apple_url, db_file, log_file, localtime, bot_token, chat_ids
 
 # SQL queries
+sql_check_empty_table = """ SELECT COUNT(*) FROM main; """
 sql_last_hash: str = """ SELECT file_hash FROM main ORDER BY main_id DESC LIMIT 1; """
 sql_last_publish_date: str = """ SELECT publish_date FROM main ORDER BY main_id DESC LIMIT 1; """
 sql_main_table: str = """ INSERT INTO main (publish_date, file_hash, log_message) VALUES (?, ?, ?); """
@@ -67,18 +68,20 @@ def page_scrape(url, conn):
 
 def check_content(content, publish_date, file_hash, conn):
     cursor = conn.cursor()
-    query_hash = cursor.execute(sql_last_hash).fetchone()
-    query_date = cursor.execute(sql_last_publish_date).fetchone()
-    if query_hash == file_hash and query_date == publish_date:
-        logging.info('No updates available.')
-        exit()
-    elif query_hash != file_hash and query_date == publish_date:
-        logging.info('No updates available but, there are differences in file hash. Check url for eventual changes.')
-        exit()
-    elif query_hash is None or query_date is None:
+    count = cursor.execute(sql_check_empty_table).fetchone()[0]
+    if count == 0:
         update_databases(conn, content, publish_date, file_hash, full_update=True)
     else:
-        update_databases(conn, content, publish_date, file_hash, full_update=False)
+        query_hash = cursor.execute(sql_last_hash).fetchone()[0]
+        query_date = cursor.execute(sql_last_publish_date).fetchone()[0]
+        if query_hash == file_hash and query_date == publish_date:
+            logging.info('No updates available.')
+            exit()
+        elif query_hash != file_hash and query_date == publish_date:
+            logging.info('No updates available but, there are differences in file hash. Check url for eventual changes.')
+            exit()
+        else:
+            update_databases(conn, content, publish_date, file_hash, full_update=False)
 
 def update_databases(conn, content, publish_date, file_hash, full_update):
     main_database_update(conn, publish_date, file_hash, full_update)
@@ -100,19 +103,27 @@ def updates_database_update(conn, content, file_hash, full_update):
     soup = BeautifulSoup(content, 'html.parser')
     content_updates = soup.find('div', id="tableWraper").find_all('tr')
     updates = updates_scrape(content_updates)
-    if full_update:
-        log_message = f'\'updates\' table first update - SHA256: {file_hash}.'
-    else:
-        log_message = f'\'updates\' table updated - SHA256: {file_hash}.'
-        previous_updates = cursor.execute(sql_get_updates).fetchall()
-        for element in previous_updates:
-            if element in updates:
-                updates.remove(element)
-    for element in reversed(updates):
-        cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
-    logging.info(log_message)
-    conn.commit()
-    apprise_notification(conn, updates, full_update)
+    new_updates = check_updates(cursor, updates)
+    if new_updates != 'None' or full_update:
+        if full_update:
+            log_message = f'\'updates\' table first update - SHA256: {file_hash}.'
+            new_updates = updates
+        else:
+            log_message = f'\'updates\' table updated - SHA256: {file_hash}.'
+        for element in reversed(new_updates):
+            cursor.execute(sql_updates_table, (element[0], element[1], element[2], element[3], file_hash))
+        conn.commit()
+        logging.info(log_message)
+        apprise_notification(conn, new_updates, full_update)
+        conn.commit()
+
+def check_updates(cursor, latest_updates):
+    existing_updates = cursor.execute(sql_get_updates).fetchall()
+    new_updates = []
+    for update in latest_updates:
+        if tuple(update) not in existing_updates:
+            new_updates.append(update)
+    return new_updates
 
 def updates_scrape(content_updates):
     updates = []
