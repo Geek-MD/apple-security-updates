@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.3
+# Apple Security Updates Notifier v0.4.3b
 # File: asu-bot.py
 # Description: Secondary component of Apple Security Updates Notifier, which will run hourly and notify via Telegram any
 # new security update.
@@ -59,7 +59,11 @@ def create_connection(file):
     return conn
 
 def page_scrape(url, conn):
-    response = requests.get(url)
+    try:
+        response = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching data from {url}: {e}")
+        exit()
     content = response.content
     soup = BeautifulSoup(content, 'html.parser')
     publish_date = soup.find('div', {'class': 'mod-date'}).time['datetime']

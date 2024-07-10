@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Apple Security Updates Notifier v0.4.3
+# Apple Security Updates Notifier v0.4.3b
 # File: asu-notifier.py
 # Description: Main component of Apple Security Updates Notifier. Once executed it creates config.json file, initializes
 # the associated database, and sets a cronjob which will run the secondary component of ASU Notifier hourly.
